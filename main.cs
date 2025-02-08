@@ -1,5 +1,6 @@
-﻿using Il2CppRUMBLE.MoveSystem;
-using Il2CppTMPro;
+﻿using Il2Cpp;
+using Il2CppRUMBLE.MoveSystem;
+using Il2CppRUMBLE.Utilities;
 using MelonLoader;
 using RumbleModdingAPI;
 using System.Collections.Generic;
@@ -9,6 +10,11 @@ using UnityEngine;
 
 namespace CustomMapCreatorTool
 {
+    public static class ModBuildInfo
+    {
+        public const string Version = "1.3.0";
+    }
+
     public class main : MelonMod
     {
         private GameObject parentGO, primitiveStorage;
@@ -69,9 +75,11 @@ namespace CustomMapCreatorTool
             if (EqualKeyPressed)
             {
                 EqualKeyPressed = false;
+                parentGO = GameObject.Find("StoreHere");
                 LoadCustomMap();
             }
         }
+
         private void LoadCustomMap()
         {
             try
@@ -162,34 +170,51 @@ namespace CustomMapCreatorTool
                     shape.GetComponent<Renderer>().material.shader = urp;
                     shape.GetComponent<Renderer>().material.color = new Color(r, g, b);
                 }
-                if (primitiveName.ToLower().Contains("environment"))
+
+                if (primitiveName.ToLower().Contains("visual"))
                 {
-                    shape.layer = 10;
+                    shape.layer = 0;
                 }
                 else
                 {
-                    shape.layer = 9;
+                    if (primitiveName.ToLower().Contains("death"))
+                    {
+                        shape.AddComponent<KillPlayerOnCollision>();
+                    }
+                    if (primitiveName.ToLower().Contains("environment"))
+                    {
+                        shape.layer = 10;
+                        shape.AddComponent<KillStructureOnImpact>();
+                    }
+                    else
+                    {
+                        shape.layer = 9;
+                    }
+                    if ((type == PrimitiveType.Plane) || (type == PrimitiveType.Quad))
+                    {
+                        meshCollider = shape.GetComponent<MeshCollider>();
+                    }
+                    else
+                    {
+                        meshCollider = shape.AddComponent<MeshCollider>();
+                    }
+                    groundCollider = shape.AddComponent<GroundCollider>();
+                    groundCollider.isMainGroundCollider = true;
+                    groundCollider.collider = meshCollider;
                 }
                 shape.transform.parent = mapParent.transform;
                 shape.transform.position = new Vector3(posX, posY, posZ);
                 shape.transform.rotation = Quaternion.Euler(rotX, rotY, rotZ);
                 shape.transform.localScale = new Vector3(scaleX, scaleY, scaleZ);
-                if ((type == PrimitiveType.Plane) || (type == PrimitiveType.Quad))
-                {
-                    meshCollider = shape.GetComponent<MeshCollider>();
-                }
-                else
-                {
-                    meshCollider = shape.AddComponent<MeshCollider>();
-                }
-                groundCollider = shape.AddComponent<GroundCollider>();
-                groundCollider.isMainGroundCollider = true;
-                groundCollider.collider = meshCollider;
             }
         }
 
         private void SpawnPrimitives()
         {
+            parentGO = new GameObject();
+            parentGO.name = "StoreHere";
+            primitiveStorage = new GameObject();
+            primitiveStorage.name = "PrimitiveStorage";
             GameObject capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             capsule.GetComponent<Renderer>().material.shader = Shader.Find("Universal Render Pipeline/Lit");
             capsule.layer = 9;
@@ -218,14 +243,6 @@ namespace CustomMapCreatorTool
             primitiveStorage.SetActive(false);
         }
 
-        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
-        {
-            parentGO = new GameObject();
-            parentGO.name = "StoreHere";
-            primitiveStorage = new GameObject();
-            primitiveStorage.name = "PrimitiveStorage";
-        }
-
         public void SaveCustomMap()
         {
             List<string> saveText = new List<string>();
@@ -233,7 +250,7 @@ namespace CustomMapCreatorTool
             for (int i = 0; i < parentGO.transform.childCount; i++)
             {
                 GameObject primitive = parentGO.transform.GetChild(i).gameObject;
-                saveText.Add($"{primitive.name}");
+                saveText.Add($"{ShortenName(primitive.name)}");
                 float r, g, b;
                 if (!primitive.name.ToLower().Contains("invisible"))
                 {
@@ -301,7 +318,7 @@ namespace CustomMapCreatorTool
                     continue;
                 }
                 saveText.Add($"shape = GameObject.CreatePrimitive({primitiveType});");
-                saveText.Add($"shape.name = \"{primitive.name}\";");
+                saveText.Add($"shape.name = \"{ShortenName(primitive.name)}\";");
                 if (primitiveType == "PrimitiveType.Cube")
                 {
                     saveText.Add("Component.Destroy(shape.GetComponent<BoxCollider>());");
@@ -325,40 +342,72 @@ namespace CustomMapCreatorTool
                 else
                 {
                     saveText.Add($"shape.GetComponent<Renderer>().material.shader = urp;");
-                    float r, g, b;
-                    r = primitive.GetComponent<Renderer>().material.color.r;
-                    g = primitive.GetComponent<Renderer>().material.color.g;
-                    b = primitive.GetComponent<Renderer>().material.color.b;
-                    saveText.Add($"shape.GetComponent<Renderer>().material.color = new Color({r.ToString(CultureInfo.InvariantCulture)}f, {g.ToString(CultureInfo.InvariantCulture)}f, {b.ToString(CultureInfo.InvariantCulture)}f); ");
+                    Renderer renderer = primitive.GetComponent<Renderer>();
+                    if (renderer != null)
+                    {
+                        float r, g, b;
+                        r = primitive.GetComponent<Renderer>().material.color.r;
+                        g = primitive.GetComponent<Renderer>().material.color.g;
+                        b = primitive.GetComponent<Renderer>().material.color.b;
+                        saveText.Add($"shape.GetComponent<Renderer>().material.color = new Color({r.ToString(CultureInfo.InvariantCulture)}f, {g.ToString(CultureInfo.InvariantCulture)}f, {b.ToString(CultureInfo.InvariantCulture)}f); ");
+                    }
                 }
-                if (primitive.name.ToLower().Contains("environment"))
+                if (primitive.name.ToLower().Contains("visual"))
                 {
-                    saveText.Add("shape.layer = 10;");
+                    saveText.Add("shape.layer = 0;");
                 }
                 else
                 {
-                    saveText.Add("shape.layer = 9;");
+                    if (primitive.name.ToLower().Contains("death"))
+                    {
+                        saveText.Add("shape.AddComponent<KillPlayerOnCollision>();");
+                    }
+                    if (primitive.name.ToLower().Contains("environment"))
+                    {
+                        saveText.Add("shape.layer = 10;");
+                        saveText.Add("shape.AddComponent<KillStructureOnImpact>();");
+                    }
+                    else
+                    {
+                        saveText.Add("shape.layer = 9;");
+                    }
+                    if ((primitiveType == "PrimitiveType.Plane") || (primitiveType == "PrimitiveType.Quad"))
+                    {
+                        saveText.Add("meshCollider = shape.GetComponent<MeshCollider>();");
+                    }
+                    else
+                    {
+                        saveText.Add("meshCollider = shape.AddComponent<MeshCollider>();");
+                    }
+                    saveText.Add("groundCollider = shape.AddComponent<GroundCollider>();");
+                    saveText.Add("groundCollider.isMainGroundCollider = true;");
+                    saveText.Add("groundCollider.collider = meshCollider;");
                 }
                 saveText.Add("shape.transform.parent = mapParent.transform;");
                 saveText.Add($"shape.transform.position = new Vector3({primitive.transform.position.x.ToString(CultureInfo.InvariantCulture)}f, {primitive.transform.position.y.ToString(CultureInfo.InvariantCulture)}f, {primitive.transform.position.z.ToString(CultureInfo.InvariantCulture)}f);");
                 saveText.Add($"shape.transform.rotation = Quaternion.Euler({primitive.transform.rotation.eulerAngles.x.ToString(CultureInfo.InvariantCulture)}f, {primitive.transform.rotation.eulerAngles.y.ToString(CultureInfo.InvariantCulture)}f, {primitive.transform.rotation.eulerAngles.z.ToString(CultureInfo.InvariantCulture)}f);");
                 saveText.Add($"shape.transform.localScale = new Vector3({primitive.transform.localScale.x.ToString(CultureInfo.InvariantCulture)}f, {primitive.transform.localScale.y.ToString(CultureInfo.InvariantCulture)}f, {primitive.transform.localScale.z.ToString(CultureInfo.InvariantCulture)}f);");
-                if ((primitiveType == "PrimitiveType.Plane") || (primitiveType == "PrimitiveType.Quad"))
-                {
-                    saveText.Add("meshCollider = shape.GetComponent<MeshCollider>();");
-                }
-                else
-                {
-                    saveText.Add("meshCollider = shape.AddComponent<MeshCollider>();");
-                }
-                saveText.Add("groundCollider = shape.AddComponent<GroundCollider>();");
-                saveText.Add("groundCollider.isMainGroundCollider = true;");
-                saveText.Add("groundCollider.collider = meshCollider;");
             }
             saveText.Add("mapParent.SetActive(false);");
             saveText.Add("}");
             File.WriteAllLines(@"UserData\MapCreator\Map.txt", saveText);
             MelonLogger.Msg("Map File Saved");
+        }
+
+        private string ShortenName(string name)
+        {
+            while (name.Contains("(Clone)"))
+            {
+                for (int i = 0; i < name.Length-6; i++)
+                {
+                    if (name.Substring(i, 7) == "(Clone)")
+                    {
+                        name = name.Remove(i, 7);
+                        break;
+                    }
+                }
+            }
+            return name;
         }
     }
 }
